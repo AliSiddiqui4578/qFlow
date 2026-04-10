@@ -40,7 +40,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // Sign up with email and password
-  const signUp = async (email, password, name, role = 'customer') => {
+  const signUp = async (email, password, name, role = 'customer', additionalData = {}) => {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       // Create user document in Firestore
@@ -49,7 +49,8 @@ export const AuthProvider = ({ children }) => {
         name,
         role,
         phone: '',
-        createdAt: new Date()
+        createdAt: new Date(),
+        ...additionalData
       });
       return { success: true, user: result.user };
     } catch (error) {

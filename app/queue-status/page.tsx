@@ -8,14 +8,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Users, Clock, TrendingUp, ArrowRight, LogOut } from "lucide-react"
+import { Users, Clock, TrendingUp, ArrowRight, LogOut, Star } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import {
   getTodayQueue,
   joinQueue,
   getUserActiveAppointment,
   subscribeToQueue,
-  subscribeToQueueAppointments
+  subscribeToQueueAppointments,
+  getAdminBusinesses,
+  submitFeedback
 } from "@/lib/firebase/queue-operations"
 
 export default function QueueStatusPage() {
@@ -28,7 +30,15 @@ export default function QueueStatusPage() {
   const [queueLoading, setQueueLoading] = useState(true)
   const [joinLoading, setJoinLoading] = useState(false)
   const [error, setError] = useState("")
-  const [serviceType, setServiceType] = useState("General Consultation")
+  
+  const [rating, setRating] = useState(0)
+  const [comment, setComment] = useState("")
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+  
+  const [businesses, setBusinesses] = useState([])
+  const [selectedType, setSelectedType] = useState('salon')
+  const [selectedBusinessId, setSelectedBusinessId] = useState('')
+  const [availableBusinesses, setAvailableBusinesses] = useState([])
 
   // Protect route
   useEffect(() => {
@@ -37,10 +47,10 @@ export default function QueueStatusPage() {
     }
   }, [user, loading, router])
 
-  // Load queue and check if user already has an appointment
+  // Load initial data
   useEffect(() => {
     if (user && userData) {
-      loadQueueData()
+      loadInitialData()
     }
   }, [user, userData])
 
@@ -55,7 +65,7 @@ export default function QueueStatusPage() {
         setAppointments(updatedAppointments)
         
         // Update user's appointment if it exists
-        const userApt = updatedAppointments.find(apt => apt.userId === user.uid)
+        const userApt = updatedAppointments.find(apt => apt.userId === user?.uid)
         if (userApt) {
           setMyAppointment(userApt)
         }
@@ -68,30 +78,62 @@ export default function QueueStatusPage() {
     }
   }, [queue?.id, user?.uid])
 
-  const loadQueueData = async () => {
+  const loadInitialData = async () => {
     setQueueLoading(true)
 
-    // Get today's queue
-    const businessId = "demo-business-001"
-    const queueResult = await getTodayQueue(businessId)
+    // 1. Check if user already has an active appointment
+    const appointmentResult = await getUserActiveAppointment(user.uid)
+    if (appointmentResult.success) {
+      setMyAppointment(appointmentResult.data)
+      setQueue({ id: appointmentResult.data.queueId })
+      setQueueLoading(false)
+      return
+    }
 
-    if (queueResult.success) {
-      setQueue({ id: queueResult.id, ...queueResult.data })
-
-      // Check if user already has an active appointment
-      const appointmentResult = await getUserActiveAppointment(user.uid)
-      if (appointmentResult.success) {
-        setMyAppointment(appointmentResult.data)
-      }
-    } else {
-      setError("No active queue available today. Please contact the admin.")
+    // 2. Load available businesses
+    const businessesResult = await getAdminBusinesses()
+    if (businessesResult.success) {
+      setBusinesses(businessesResult.data)
+      updateAvailableBusinesses('salon', businessesResult.data)
     }
 
     setQueueLoading(false)
   }
 
+  const updateAvailableBusinesses = (type, allBusinesses = businesses) => {
+    const filtered = allBusinesses.filter(b => b.businessType === type)
+    setAvailableBusinesses(filtered)
+    if (filtered.length > 0) {
+      handleBusinessChange(filtered[0].id)
+    } else {
+      setSelectedBusinessId('')
+      setQueue(null)
+      setAppointments([])
+    }
+  }
+
+  const handleTypeChange = (type) => {
+    setSelectedType(type)
+    updateAvailableBusinesses(type)
+  }
+
+  const handleBusinessChange = async (businessId) => {
+    setSelectedBusinessId(businessId)
+    if (!businessId) return
+    
+    // Check if that business has an active queue today
+    const queueResult = await getTodayQueue(businessId)
+    if (queueResult.success) {
+      setQueue({ id: queueResult.id, ...queueResult.data })
+      setError("")
+    } else {
+      setQueue(null)
+      setAppointments([])
+    }
+  }
+
   const handleJoinQueue = async () => {
-    if (!queue?.id || !user || !userData) return
+    if (!queue?.id || !user || !userData || !selectedBusinessId) return
 
     setJoinLoading(true)
     setError("")
@@ -100,7 +142,7 @@ export default function QueueStatusPage() {
       queue.id,
       user.uid,
       userData.name || user.email?.split('@')[0] || 'Customer',
-      serviceType
+      'Standard' // Using a default since serviceType is removed
     )
 
     if (result.success) {
@@ -111,7 +153,7 @@ export default function QueueStatusPage() {
         status: 'waiting',
         userId: user.uid,
         userName: userData.name,
-        serviceType
+        serviceType: 'Standard'
       })
     } else {
       setError(result.error || "Failed to join queue")
@@ -119,6 +161,30 @@ export default function QueueStatusPage() {
 
     setJoinLoading(false)
   }
+
+  const handleSubmitFeedback = async () => {
+    if (!queue?.businessId || !myAppointment) return;
+    
+    setFeedbackLoading(true);
+    await submitFeedback(
+      queue.businessId,
+      user.uid,
+      myAppointment.id,
+      rating,
+      comment
+    );
+    
+    setMyAppointment(null);
+    setRating(0);
+    setComment("");
+    setFeedbackLoading(false);
+  };
+
+  const handleSkipFeedback = () => {
+    setMyAppointment(null);
+    setRating(0);
+    setComment("");
+  };
 
   const handleSignOut = async () => {
     await signOut()
@@ -185,44 +251,130 @@ export default function QueueStatusPage() {
 
             <Card className="max-w-md mx-auto">
               <CardHeader>
-                <CardTitle>Queue Information</CardTitle>
-                <CardDescription>Current queue status</CardDescription>
+                <CardTitle>Find a Business</CardTitle>
+                <CardDescription>Select a business to join their queue</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-secondary rounded-lg">
-                  <span className="text-sm font-medium">People in Queue</span>
-                  <span className="text-2xl font-bold">{appointments.filter(apt => apt.status === 'waiting').length}</span>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="business-type">Business Type</Label>
+                    <select
+                      id="business-type"
+                      value={selectedType}
+                      onChange={(e) => handleTypeChange(e.target.value)}
+                      className="w-full px-3 py-2 border border-input rounded-lg bg-background"
+                    >
+                      <option value="salon">Salon</option>
+                      <option value="hospital">Hospital</option>
+                      <option value="clinic">Clinic</option>
+                      <option value="restaurant">Restaurant</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="business-name">Select Business</Label>
+                    <select
+                      id="business-name"
+                      value={selectedBusinessId}
+                      onChange={(e) => handleBusinessChange(e.target.value)}
+                      className={`w-full px-3 py-2 border border-input rounded-lg ${availableBusinesses.length > 0 ? 'bg-background text-primary' : 'bg-muted text-muted-foreground'}`}
+                      disabled={availableBusinesses.length === 0}
+                    >
+                      {availableBusinesses.length === 0 && <option value="">No businesses found</option>}
+                      {availableBusinesses.map(b => (
+                        <option key={b.id} value={b.id}>{b.businessName}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {queue ? (
+                  <>
+                    <div className="pt-4 mt-4 border-t border-border">
+                      <div className="flex items-center justify-between p-3 bg-secondary rounded-lg mb-3">
+                        <span className="text-sm font-medium">People in Queue</span>
+                        <span className="text-2xl font-bold">{appointments.filter(apt => apt.status === 'waiting').length}</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-3 bg-secondary rounded-lg">
+                        <span className="text-sm font-medium">Estimated Wait</span>
+                        <span className="text-2xl font-bold">{(queue.avgServiceTime || 15) * appointments.filter(apt => apt.status === 'waiting').length} min</span>
+                      </div>
+                    </div>
+
+                    <Button
+                      onClick={handleJoinQueue}
+                      disabled={joinLoading}
+                      className="w-full gradient-bg mt-4"
+                    >
+                      {joinLoading ? "Joining..." : "Join Queue"}
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </>
+                ) : (
+                  <div className="pt-4 mt-4 border-t border-border text-center text-sm font-medium text-muted-foreground p-4 bg-secondary/50 rounded-lg">
+                    {selectedBusinessId ? "This business hasn't opened their queue today." : "Please select a business to continue"}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        ) : myAppointment.status === 'completed' ? (
+          // Feedback view
+          <div className="space-y-6">
+            <div className="text-center">
+              <h1 className="text-3xl font-bold mb-2">Service <span className="gradient-text">Completed</span></h1>
+              <p className="text-muted-foreground">How was your experience today?</p>
+            </div>
+            
+            <Card className="max-w-md mx-auto border-2 border-primary/20">
+              <CardContent className="pt-6 space-y-6">
+                <div className="flex justify-center gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => setRating(star)}
+                      className="focus:outline-none transition-transform hover:scale-110 p-1"
+                    >
+                      <Star
+                        className={`w-12 h-12 ${
+                          rating >= star
+                            ? "fill-yellow-400 text-yellow-400"
+                            : "text-muted-foreground stroke-1"
+                        }`}
+                      />
+                    </button>
+                  ))}
                 </div>
                 
-                <div className="flex items-center justify-between p-3 bg-secondary rounded-lg">
-                  <span className="text-sm font-medium">Estimated Wait</span>
-                  <span className="text-2xl font-bold">{(queue?.avgServiceTime || 15) * appointments.filter(apt => apt.status === 'waiting').length} min</span>
-                </div>
-
                 <div className="space-y-2">
-                  <Label htmlFor="service-type">Service Type</Label>
-                  <select
-                    id="service-type"
-                    value={serviceType}
-                    onChange={(e) => setServiceType(e.target.value)}
-                    className="w-full px-3 py-2 border border-input rounded-lg bg-background"
-                  >
-                    <option value="General Consultation">General Consultation</option>
-                    <option value="Health Checkup">Health Checkup</option>
-                    <option value="Dental Care">Dental Care</option>
-                    <option value="Haircut & Styling">Haircut & Styling</option>
-                    <option value="Massage Therapy">Massage Therapy</option>
-                  </select>
+                  <Label>Optional Comment</Label>
+                  <textarea
+                    className="w-full min-h-[100px] border border-input rounded-md bg-background px-3 py-2 text-sm focus:ring-2 focus:ring-primary focus:border-transparent"
+                    placeholder="Tell us what you liked or what could be improved..."
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                  />
                 </div>
-
-                <Button
-                  onClick={handleJoinQueue}
-                  disabled={joinLoading}
-                  className="w-full gradient-bg"
-                >
-                  {joinLoading ? "Joining..." : "Join Queue"}
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
+                
+                <div className="space-y-3 pt-2">
+                  <Button
+                    className="w-full gradient-bg h-12 text-lg"
+                    disabled={rating === 0 || feedbackLoading}
+                    onClick={handleSubmitFeedback}
+                  >
+                    {feedbackLoading ? "Submitting..." : "Submit Feedback"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="w-full"
+                    onClick={handleSkipFeedback}
+                    disabled={feedbackLoading}
+                  >
+                    Skip
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>

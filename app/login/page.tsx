@@ -15,6 +15,7 @@ export default function LoginPage() {
   const [customerPassword, setCustomerPassword] = useState("")
   const [adminEmail, setAdminEmail] = useState("")
   const [adminPassword, setAdminPassword] = useState("")
+  const [adminCode, setAdminCode] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState("customer")
@@ -45,6 +46,12 @@ export default function LoginPage() {
   const handleAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+
+    if (adminCode !== "ADMIN2024") {
+      setError("Invalid admin validation code")
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -154,6 +161,19 @@ export default function LoginPage() {
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label htmlFor="admin-code">Admin Code</Label>
+                    <Input 
+                      id="admin-code" 
+                      type="text" 
+                      placeholder="Enter business admin code"
+                      value={adminCode}
+                      onChange={(e) => setAdminCode(e.target.value)}
+                      required
+                      disabled={loading}
+                    />
+                    <p className="text-xs text-muted-foreground">Hint: Use ADMIN2024 for testing</p>
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="admin-password">Password</Label>
                     <Input 
                       id="admin-password" 
@@ -173,6 +193,12 @@ export default function LoginPage() {
                   >
                     {loading ? "Signing In..." : "Sign In as Admin"}
                   </Button>
+                  <div className="text-center text-sm">
+                    Don't have an account?{" "}
+                    <Link href="/sign-up" className="text-primary hover:underline">
+                      Sign up
+                    </Link>
+                  </div>
                 </form>
               </TabsContent>
             </Tabs>

@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Users } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 
@@ -29,9 +30,11 @@ export default function SignUpPage() {
   const [adminForm, setAdminForm] = useState({
     name: "",
     email: "",
-    adminCode: "",
+    adminCode: "ADMIN2024",
     password: "",
     confirmPassword: "",
+    businessName: "",
+    businessType: "",
   })
 
   const handleCustomerSignUp = async (e: React.FormEvent) => {
@@ -77,7 +80,7 @@ export default function SignUpPage() {
     setError("")
 
     // Validate admin code (you can change this to your preferred code)
-    if (adminForm.adminCode !== "admin123") {
+    if (adminForm.adminCode !== "ADMIN2024") {
       setError("Invalid admin invitation code")
       return
     }
@@ -101,7 +104,11 @@ export default function SignUpPage() {
         adminForm.email,
         adminForm.password,
         adminForm.name,
-        'admin'
+        'admin',
+        {
+          businessName: adminForm.businessName,
+          businessType: adminForm.businessType
+        }
       )
 
       if (result.success) {
@@ -253,17 +260,47 @@ export default function SignUpPage() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="admin-code">Admin Invitation Code</Label>
+                    <Label htmlFor="admin-business-name">Business Name</Label>
                     <Input
-                      id="admin-code"
+                      id="admin-business-name"
                       type="text"
-                      placeholder="Enter your admin code"
-                      value={adminForm.adminCode}
-                      onChange={(e) => setAdminForm({ ...adminForm, adminCode: e.target.value })}
+                      placeholder="e.g. Health Plus Clinic"
+                      value={adminForm.businessName}
+                      onChange={(e) => setAdminForm({ ...adminForm, businessName: e.target.value })}
                       required
                       disabled={loading}
                     />
-                    <p className="text-xs text-muted-foreground">Hint: Use ADMIN2024 for testing</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="admin-business-type">Business Type</Label>
+                    <Select
+                      value={adminForm.businessType}
+                      onValueChange={(value) => setAdminForm({ ...adminForm, businessType: value })}
+                      disabled={loading}
+                      required
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select Business Type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="salon">Salon</SelectItem>
+                        <SelectItem value="hospital">Hospital</SelectItem>
+                        <SelectItem value="clinic">Clinic</SelectItem>
+                        <SelectItem value="restaurant">Restaurant</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="admin-code">Admin Code (Save this for login)</Label>
+                    <Input
+                      id="admin-code"
+                      type="text"
+                      value={adminForm.adminCode}
+                      readOnly
+                      className="bg-muted font-mono font-medium text-primary"
+                    />
+                    <p className="text-xs text-muted-foreground">This unique code was generated for your business. You will need it to sign in.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="admin-password">Password</Label>

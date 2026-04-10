@@ -6,8 +6,9 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Users, Clock, TrendingUp, Calendar, Activity, LogOut } from "lucide-react"
+import { Users, Clock, TrendingUp, Calendar, Activity, LogOut, Power, Star } from "lucide-react"
 import { useAuth } from "@/contexts/AuthContext"
 import { 
   createTodayQueue, 
@@ -15,7 +16,10 @@ import {
   callNextCustomer, 
   completeService,
   subscribeToQueueAppointments,
-  subscribeToQueue
+  subscribeToQueue,
+  closeQueue,
+  updateAvgServiceTime,
+  getBusinessFeedbacks
 } from "@/lib/firebase/queue-operations"
 
 export default function DashboardPage() {
@@ -27,6 +31,30 @@ export default function DashboardPage() {
   const [appointments, setAppointments] = useState([])
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState("")
+  const [newTimeValue, setNewTimeValue] = useState("15")
+  const [feedbacks, setFeedbacks] = useState([])
+  const [averageRating, setAverageRating] = useState("0")
+
+  // Fetch all lifetime feedbacks
+  useEffect(() => {
+    if (user?.uid) {
+      loadFeedbacks(user.uid)
+    }
+  }, [user?.uid])
+
+  const loadFeedbacks = async (businessId) => {
+    const res = await getBusinessFeedbacks(businessId);
+    if (res.success) {
+      setFeedbacks(res.data);
+      setAverageRating(res.averageRating);
+    }
+  }
+
+  useEffect(() => {
+    if (queue?.avgServiceTime) {
+      setNewTimeValue(queue.avgServiceTime.toString())
+    }
+  }, [queue?.avgServiceTime])
 
   // Protect route - redirect to login if not authenticated
   useEffect(() => {
@@ -63,28 +91,62 @@ export default function DashboardPage() {
   const initializeQueue = async () => {
     setQueueLoading(true)
     
-    // For demo purposes, using a default business ID
-    const businessId = "demo-business-001"
-    const businessName = userData?.name || "Demo Business"
+    const businessId = user?.uid;
+    if (!businessId) return;
     
     // Try to get existing queue
     let result = await getTodayQueue(businessId)
     
-    // If no queue exists, create one
-    if (!result.success) {
-      result = await createTodayQueue(businessId, businessName)
-      
-      if (result.success) {
-        const queueData = await getTodayQueue(businessId)
-        if (queueData.success) {
-          setQueue({ id: queueData.id, ...queueData.data })
-        }
-      }
-    } else {
+    if (result.success) {
       setQueue({ id: result.id, ...result.data })
+    } else {
+      setQueue(null)
     }
     
     setQueueLoading(false)
+  }
+
+  const handleOpenQueue = async () => {
+    setActionLoading(true)
+    setError("")
+    
+    const businessId = user?.uid;
+    const businessName = userData?.businessName || userData?.name || "Business";
+    
+    const result = await createTodayQueue(businessId, businessName);
+    if (result.success) {
+      await initializeQueue();
+    } else {
+      setError(result.error || "Failed to open queue");
+    }
+    setActionLoading(false)
+  }
+
+  const handleCloseQueue = async () => {
+    if (!queue?.id) return;
+    setActionLoading(true)
+    setError("")
+    
+    const result = await closeQueue(queue.id);
+    if (result.success) {
+      setQueue(null);
+      setAppointments([]);
+    } else {
+      setError(result.error || "Failed to close queue");
+    }
+    setActionLoading(false)
+  }
+
+  const handleSaveTime = async () => {
+    if (!queue?.id) return;
+    setActionLoading(true)
+    setError("")
+    
+    const result = await updateAvgServiceTime(queue.id, newTimeValue);
+    if (!result.success) {
+      setError(result.error || "Failed to update service time");
+    }
+    setActionLoading(false)
   }
 
   const handleCallNext = async () => {
@@ -182,7 +244,7 @@ export default function DashboardPage() {
         )}
 
         {/* Stats Grid */}
-        <div className="mb-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-8 grid gap-6 sm:grid-cols-2 xl:grid-cols-5">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">Active in Queue</CardTitle>
@@ -234,12 +296,24 @@ export default function DashboardPage() {
               <p className="mt-1 text-xs text-muted-foreground">Issued today</p>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium">Customer Avg</CardTitle>
+              <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-3xl font-bold">{averageRating}</div>
+              <p className="mt-1 text-xs text-muted-foreground">Lifetime rating</p>
+            </CardContent>
+          </Card>
         </div>
 
         <Tabs defaultValue="queue" className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className="grid w-full max-w-md grid-cols-3">
             <TabsTrigger value="queue">Live Queue</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="reviews">Reviews</TabsTrigger>
           </TabsList>
 
           <TabsContent value="queue" className="space-y-4">
@@ -252,7 +326,11 @@ export default function DashboardPage() {
                 <CardDescription>Currently active customers in queue</CardDescription>
               </CardHeader>
               <CardContent>
-                {appointments.length === 0 ? (
+                {!queue ? (
+                  <div className="text-center py-8 text-muted-foreground border-2 border-dashed border-border rounded-lg">
+                    Your queue is currently closed. Open the queue to start receiving customers.
+                  </div>
+                ) : appointments.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground">
                     No customers in queue yet
                   </div>
@@ -329,6 +407,50 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          <TabsContent value="reviews" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                  Customer Feedbacks
+                </CardTitle>
+                <CardDescription>What people are saying about their service</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {feedbacks.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground border-2 border-dashed border-border rounded-lg">
+                    No customer feedback received yet.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {feedbacks.map((fb) => (
+                      <div key={fb.id} className="p-4 rounded-lg border border-border bg-card">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((s) => (
+                              <Star
+                                key={s}
+                                className={`h-4 w-4 ${fb.rating >= s ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground stroke-1"}`}
+                              />
+                            ))}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {fb.createdAt?.seconds ? new Date(fb.createdAt.seconds * 1000).toLocaleDateString() : ""}
+                          </div>
+                        </div>
+                        {fb.comment ? (
+                          <p className="text-sm italic text-foreground mt-2">"{fb.comment}"</p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic mt-2">No comment provided.</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
 
         {/* Quick Actions */}
@@ -339,34 +461,67 @@ export default function DashboardPage() {
               <CardDescription>Manage your queue</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Button 
-                  className="gradient-bg h-auto flex-col gap-2 py-6"
-                  onClick={handleCallNext}
-                  disabled={actionLoading || waitingAppointments.length === 0}
-                >
-                  <Users className="h-6 w-6" />
-                  <span>Call Next Customer</span>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="h-auto flex-col gap-2 py-6 bg-transparent"
-                  onClick={handleCompleteService}
-                  disabled={actionLoading || !inServiceAppointment}
-                >
-                  <Calendar className="h-6 w-6" />
-                  <span>Complete Service</span>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="h-auto flex-col gap-2 py-6 bg-transparent"
-                  onClick={initializeQueue}
-                  disabled={actionLoading}
-                >
-                  <TrendingUp className="h-6 w-6" />
-                  <span>Refresh Queue</span>
-                </Button>
-              </div>
+              {queue ? (
+                <div className="space-y-6">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Button 
+                      className="gradient-bg h-auto flex-col gap-2 py-6"
+                      onClick={handleCallNext}
+                      disabled={actionLoading || waitingAppointments.length === 0}
+                    >
+                      <Users className="h-6 w-6" />
+                      <span>Call Next Customer</span>
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="h-auto flex-col gap-2 py-6 bg-transparent"
+                      onClick={handleCompleteService}
+                      disabled={actionLoading || !inServiceAppointment}
+                    >
+                      <Calendar className="h-6 w-6" />
+                      <span>Complete Service</span>
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      className="h-auto flex-col gap-2 py-6 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 hover:text-red-700 bg-transparent"
+                      onClick={handleCloseQueue}
+                      disabled={actionLoading}
+                    >
+                      <Power className="h-6 w-6" />
+                      <span>Close Queue</span>
+                    </Button>
+                  </div>
+                  
+                  <div className="pt-4 border-t border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                      <h4 className="font-medium text-sm">Average Service Time</h4>
+                      <p className="text-xs text-muted-foreground">Adjust this to update the estimated wait time for your customers.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                       <Input 
+                         type="number" 
+                         className="w-20" 
+                         value={newTimeValue} 
+                         onChange={(e) => setNewTimeValue(e.target.value)}
+                         min={1} 
+                       />
+                       <span className="text-sm text-muted-foreground whitespace-nowrap">min / person</span>
+                       <Button variant="secondary" size="sm" onClick={handleSaveTime} disabled={actionLoading}>Update</Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center">
+                  <Button 
+                    className="gradient-bg h-auto flex-col gap-2 py-6 px-12 w-full max-w-sm"
+                    onClick={handleOpenQueue}
+                    disabled={actionLoading}
+                  >
+                    <Power className="h-6 w-6" />
+                    <span className="text-lg">Open Queue for Today</span>
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
