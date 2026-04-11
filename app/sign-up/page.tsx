@@ -57,7 +57,7 @@ export default function SignUpPage() {
 
     try {
       const result = await signUp(
-        customerForm.email,
+        customerForm.email.trim(),
         customerForm.password,
         customerForm.name,
         'customer'
@@ -101,7 +101,7 @@ export default function SignUpPage() {
 
     try {
       const result = await signUp(
-        adminForm.email,
+        adminForm.email.trim(),
         adminForm.password,
         adminForm.name,
         'admin',

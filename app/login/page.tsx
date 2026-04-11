@@ -29,7 +29,7 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const result = await signIn(customerEmail, customerPassword)
+      const result = await signIn(customerEmail.trim(), customerPassword)
       
       if (result.success) {
         router.push("/queue-status")
@@ -55,7 +55,7 @@ export default function LoginPage() {
     setLoading(true)
 
     try {
-      const result = await signIn(adminEmail, adminPassword)
+      const result = await signIn(adminEmail.trim(), adminPassword)
       
       if (result.success) {
         router.push("/dashboard")

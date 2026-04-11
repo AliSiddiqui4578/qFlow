@@ -17,7 +17,8 @@ import {
   subscribeToQueue,
   subscribeToQueueAppointments,
   getAdminBusinesses,
-  submitFeedback
+  submitFeedback,
+  leaveQueue
 } from "@/lib/firebase/queue-operations"
 
 export default function QueueStatusPage() {
@@ -29,6 +30,7 @@ export default function QueueStatusPage() {
   const [appointments, setAppointments] = useState([])
   const [queueLoading, setQueueLoading] = useState(true)
   const [joinLoading, setJoinLoading] = useState(false)
+  const [leaveLoading, setLeaveLoading] = useState(false)
   const [error, setError] = useState("")
   
   const [rating, setRating] = useState(0)
@@ -65,7 +67,7 @@ export default function QueueStatusPage() {
         setAppointments(updatedAppointments)
         
         // Update user's appointment if it exists
-        const userApt = updatedAppointments.find(apt => apt.userId === user?.uid)
+        const userApt = updatedAppointments.find(apt => apt.userId === user?.uid && apt.status !== 'cancelled')
         if (userApt) {
           setMyAppointment(userApt)
         }
@@ -92,16 +94,22 @@ export default function QueueStatusPage() {
 
     // 2. Load available businesses
     const businessesResult = await getAdminBusinesses()
-    if (businessesResult.success) {
+    if (businessesResult.success && businessesResult.data?.length > 0) {
       setBusinesses(businessesResult.data)
-      updateAvailableBusinesses('salon', businessesResult.data)
+      const firstAvailableType = businessesResult.data[0].businessType
+      setSelectedType(firstAvailableType)
+      updateAvailableBusinesses(firstAvailableType, businessesResult.data)
+    } else if (businessesResult.success) {
+      setBusinesses([])
+      updateAvailableBusinesses(selectedType, [])
     }
 
     setQueueLoading(false)
   }
 
   const updateAvailableBusinesses = (type, allBusinesses = businesses) => {
-    const filtered = allBusinesses.filter(b => b.businessType === type)
+    const targetType = type.toLowerCase().trim()
+    const filtered = allBusinesses.filter(b => b.businessType === targetType)
     setAvailableBusinesses(filtered)
     if (filtered.length > 0) {
       handleBusinessChange(filtered[0].id)
@@ -160,6 +168,19 @@ export default function QueueStatusPage() {
     }
 
     setJoinLoading(false)
+  }
+
+  const handleLeaveQueue = async () => {
+    if (!myAppointment?.id) return
+    
+    setLeaveLoading(true)
+    const result = await leaveQueue(myAppointment.id)
+    if (result.success) {
+      setMyAppointment(null)
+    } else {
+      setError(result.error || "Failed to leave queue")
+    }
+    setLeaveLoading(false)
   }
 
   const handleSubmitFeedback = async () => {
@@ -426,6 +447,15 @@ export default function QueueStatusPage() {
                     <p className="font-semibold text-yellow-800">⚠️ You're next! Please stay nearby.</p>
                   </div>
                 )}
+
+                <Button
+                  variant="outline"
+                  className="w-full mt-6 text-red-500 border-red-200 hover:bg-red-50 hover:text-red-600"
+                  onClick={handleLeaveQueue}
+                  disabled={leaveLoading || myAppointment.status === 'in-service'}
+                >
+                  {leaveLoading ? "Leaving..." : "Leave Queue"}
+                </Button>
               </CardContent>
             </Card>
 
@@ -441,7 +471,7 @@ export default function QueueStatusPage() {
               <CardContent>
                 <div className="space-y-2">
                   {appointments
-                    .filter(apt => apt.status !== 'completed')
+                    .filter(apt => apt.status !== 'completed' && apt.status !== 'cancelled')
                     .slice(0, 5)
                     .map((appointment) => (
                       <div
